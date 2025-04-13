@@ -11,14 +11,14 @@ using UnityEngine.Pool;
 
 namespace TEN
 {
-	/// <summary>
-	///项目 : TEN
-	///日期：2025/4/5 14:27:01 
-	///创建者：Michael Corleone
-	///类用途：
-	/// </summary>
-	public partial class PaseMaster : MonoBehaviour
-	{
+    /// <summary>
+    ///项目 : TEN
+    ///日期：2025/4/5 14:27:01 
+    ///创建者：Michael Corleone
+    ///类用途：
+    /// </summary>
+    public partial class PaseMaster : MonoBehaviour
+    {
         public RenderTexture RT;
         public Texture2D ASD;
         public LineRenderer LR;
@@ -145,7 +145,7 @@ namespace TEN
                     if (colorMask[x, y])
                     {
                         if (IsEdge(colorMask, x, y))
-                            edges.Add(new Vector3Int(x , y));
+                            edges.Add(new Vector3Int(x, y));
                     }
                 }
             }
@@ -235,6 +235,46 @@ namespace TEN
             //return edges;
             #endregion
         }
+        public static BoundsMessageGroup GetBoundsLine()
+        {
+            //v4
+            BoundsMessageGroup edges = new BoundsMessageGroup();
+            int width = _reslution.x;
+            int height = _reslution.x;
+            // 使用Sobel算法检测边界
+            for (int x = 1; x < width - 1; x++)
+            {
+                for (int y = 1; y < height - 1; y++)
+                {
+                    int color = _pixleMatrix[x, y];
+                    if (color == -1)
+                    {
+                        continue;
+                    }
+                    int iColor = _pixleMatrix[x, y];
+                    if (iColor >= 0)
+                    {
+                        if (!colors_neigbor.ContainsKey(colors_inverse[iColor]))
+                        {
+                            //colors_neigbor[colors_inverse[iColor]] = new List<Color>();
+                            colors_neigbor.Add(colors_inverse[iColor], new List<Color>());
+                        }
+                    }
+                    //if (IsEdgeSimple(_pixleMatrix, x, y))
+                    if (IsEdge(_pixleMatrix, x, y, color , out List<Color> neighbors))
+                    {
+                        foreach (var item in neighbors)
+                        {
+                            edges.AddPoint(colors_inverse[color], item, new Vector3Int(x, y , 0));
+                        }
+                        //edges[color].Add(new Vector3Int(x, y));
+                    }
+                }
+            }
+            return edges;
+
+        }
+
 
         public static List<List<Vector3Int>> GetColorEdges()
         {
@@ -264,7 +304,7 @@ namespace TEN
                         }
                     }
                     //if (IsEdgeSimple(_pixleMatrix, x, y))
-                    if (IsEdge(_pixleMatrix, x, y , color))
+                    if (IsEdge(_pixleMatrix, x, y, color))
                     {
                         edges[color].Add(new Vector3Int(x, y));
                     }
@@ -328,9 +368,9 @@ namespace TEN
             {
                 //Vector2 current = Points[i];
                 //Vector2 next = Points[(i + 1) % count];
-                Vector2 current = new Vector2(Points[i].x , Points[i].z);
-                Vector2 next = new Vector2(Points[(i + 1) % count].x , Points[(i + 1) % count].z);
-                area += Cross(current , next);
+                Vector2 current = new Vector2(Points[i].x, Points[i].z);
+                Vector2 next = new Vector2(Points[(i + 1) % count].x, Points[(i + 1) % count].z);
+                area += Cross(current, next);
             }
             return area * 0.5f;
         }
@@ -384,7 +424,7 @@ namespace TEN
         static UnityEngine.Vector3 greenColor = new UnityEngine.Vector3(0.2125f, 0.7154f, 0.0721f);
         static float luminance(Color color)
         {
-            return UnityEngine.Vector3.Dot(greenColor, new UnityEngine.Vector3(color.r , color.g , color.b));
+            return UnityEngine.Vector3.Dot(greenColor, new UnityEngine.Vector3(color.r, color.g, color.b));
         }
         static int ClampX(int value)
         {
@@ -404,7 +444,7 @@ namespace TEN
             float sum = 0;
             UnityEngine.Vector2Int pos = new UnityEngine.Vector2Int(x, y);
             UnityEngine.Vector2Int[] uvs = new UnityEngine.Vector2Int[9];
-            uvs[0] = pos + new UnityEngine.Vector2Int(-1,-1);
+            uvs[0] = pos + new UnityEngine.Vector2Int(-1, -1);
             uvs[1] = pos + new UnityEngine.Vector2Int(0, -1);
             uvs[2] = pos + new UnityEngine.Vector2Int(1, -1);
             uvs[3] = pos + new UnityEngine.Vector2Int(-1, 0);
@@ -464,8 +504,64 @@ namespace TEN
             }
             return false;
         }
+        public static Color BadColor = new Color(0, 0, 0, 0);
+        static bool IsEdge(int[,] mask, int x, int y, int color , out List<Color> neighbor)
+        {
+            int sum = 0;
+            neighbor = new List<Color>();
+            // Sobel算子
+            int[,] gx = new int[3, 3] { { -1, 0, 1 }, { -2, 0, 2 }, { -1, 0, 1 } };
+            int[,] gy = new int[3, 3] { { -1, -2, -1 }, { 0, 0, 0 }, { 1, 2, 1 } };
 
-        static bool IsEdge(int[,] mask, int x, int y , int color)
+            int width = mask.GetLength(0);
+            int height = mask.GetLength(1);
+            int mColor_source = mask[x, y];
+
+            int gradX = 0, gradY = 0;
+            for (int i = -1; i <= 1; i++)
+            {
+                for (int j = -1; j <= 1; j++)
+                {
+                    int nx = Mathf.Clamp(x + i, 0, width - 1);
+                    int ny = Mathf.Clamp(y + j, 0, height - 1);
+                    int iColor = mask[nx, ny];
+
+                    int val = iColor == color ? 1 : 0;
+                    if (iColor >= 0 && val == 0)
+                    {
+                        if (!colors_neigbor[colors_inverse[mColor_source]].Contains(colors_inverse[iColor]))
+                        {
+                            colors_neigbor[colors_inverse[mColor_source]].Add(colors_inverse[iColor]);
+                        }
+                    }
+                    if (val == 1)
+                    {
+                        if (iColor >= 0)
+                        {
+                            if (!neighbor.Contains(colors_inverse[iColor]))
+                            {
+                                neighbor.Add(colors_inverse[iColor]);
+                            }
+                        }
+                        else
+                        {
+                            if (!neighbor.Contains(BadColor))
+                            {
+                                neighbor.Add(BadColor);
+                            }
+                        }
+                    }
+
+                    gradX += gx[i + 1, j + 1] * val;
+                    gradY += gy[i + 1, j + 1] * val;
+                }
+            }
+
+            sum = Mathf.Abs(gradX) + Mathf.Abs(gradY);
+            return sum > 0;
+        }
+
+        static bool IsEdge(int[,] mask, int x, int y, int color)
         {
             int sum = 0;
 
@@ -833,7 +929,7 @@ namespace TEN
                     if (!colors.ContainsKey(tempColor))
                     {
                         colors.Add(tempColor, iValue);
-                        colors_inverse.Add(iValue , tempColor);
+                        colors_inverse.Add(iValue, tempColor);
                         iValue++;
                     }
                     _pixleMatrix[i, j] = colors[tempColor];
@@ -857,7 +953,7 @@ namespace TEN
         public int InsertPointCount = 3;
         List<Vector3Int> Vector2Ints = new List<UnityEngine.Vector3Int>();
         List<List<Vector3Int>> allAreas;
-        private static Dictionary<Color , int> colors = new Dictionary<Color, int>();
+        private static Dictionary<Color, int> colors = new Dictionary<Color, int>();
         private static Dictionary<int, Color> colors_inverse = new Dictionary<int, Color>();
         private static Dictionary<Color, List<Color>> colors_neigbor = new Dictionary<Color, List<Color>>();
         private static int[,] _pixleMatrix;
@@ -868,7 +964,7 @@ namespace TEN
         public static PaseMaster Instance = null;
         private Transform meshDad;
         private Transform lineDad;
-        private Dictionary<Color, List<MeshRenderer>> c2m = new();
+        private Dictionary<Color, List<MeshRenderer>> c2m = new Dictionary<Color, List<MeshRenderer>>();
 
         private void Awake()
         {
@@ -880,7 +976,7 @@ namespace TEN
             Instance = this;
             GeneretorTransMatrix();
             //ASD = DuplicateTexture(ASD);
-            _reslution = new UnityEngine.Vector2Int(ASD.width, ASD.height );
+            _reslution = new UnityEngine.Vector2Int(ASD.width, ASD.height);
             //GenertorBidirectionalGraph(ASD.width, ASD.height);
             //StartCoroutine(GenertorBidirectionalGraph(ASD.width, ASD.height));
             //Parse(new Color(148f / 255f, 255f / 255f, 111f / 255f, 1) , LR);
@@ -894,8 +990,127 @@ namespace TEN
         }
         private void Start()
         {
-            StartCoroutine(GeneretorLines());
+            StartCoroutine(GeneretorLines_v2());
         }
+
+        public class BoundsNode
+        {
+            public Color SelfColor;
+            public Color NeighborColor;
+            public List<Vector3> Boundary;
+            public BoundsNode Next;
+            public BoundsNode(Color selfColor , Color neighborColor)
+            {
+                SelfColor = selfColor;
+                NeighborColor = neighborColor;
+                Boundary = new List<Vector3>();
+            }
+            public BoundsNode(BoundsNode data)
+            {
+                SelfColor = data.SelfColor;
+                NeighborColor = data.NeighborColor;
+                Boundary = new List<Vector3>(data.Boundary);
+            }
+        }
+
+        public class BoundsCircularLink
+        {
+            public BoundsNode Head;
+            public BoundsNode Tail;
+
+            public BoundsCircularLink(BoundsNode boundsNode)
+            {
+                Head = boundsNode;
+                Tail = boundsNode;
+
+                Head.Next = Tail;
+                Tail.Next = Head;
+            }
+
+            public void Insert(BoundsNode data)
+            {
+                Tail.Next = data;
+                data.Next = Head;
+                Tail = data;
+            }
+
+            public bool ConditionsColor(Color color)
+            {
+                BoundsNode temp = Head;
+                do
+                {
+                    if (temp.NeighborColor == color)
+                    {
+                        return true;
+                    }
+                    temp = temp.Next;
+                } while (temp != Head);
+                return false;
+            }
+
+            public BoundsNode GetNerighbor(Color color)
+            {
+                BoundsNode temp = Head;
+                do
+                {
+                    if (temp.NeighborColor == color)
+                    {
+                        return temp;
+                    }
+                    temp = temp.Next;
+                } while (temp != Head);
+                return null;
+            }
+        }
+
+        public class BoundsMessageGroup
+        {
+            public Dictionary<Color,BoundsCircularLink> BoundsMessage;
+            public BoundsMessageGroup()
+            {
+                BoundsMessage = new Dictionary<Color, BoundsCircularLink>();
+            }
+            public void AddPoint(Color mColor,Color nColor,Vector3Int vector3)
+            {
+                if (!BoundsMessage.ContainsKey(mColor))
+                {
+                    BoundsNode boundsNode = new BoundsNode(mColor, nColor);
+                    boundsNode.Boundary.Add(vector3);
+                    BoundsMessage.Add(mColor, new BoundsCircularLink(boundsNode));
+                }
+                else
+                {
+                    BoundsMessage[mColor].GetNerighbor(nColor).Boundary.Add(vector3);
+                }
+            }
+        }
+
+        private IEnumerator GeneretorLines_v2()
+        {
+            yield return new WaitForEndOfFrame();
+            ResetMapColor();
+            BoundsMessageGroup group = GetBoundsLine();
+            Transform nidie = new GameObject("nidie").transform;
+            foreach (var item in group.BoundsMessage)
+            {
+                BoundsNode temp = item.Value.Head;
+                do
+                {
+                    LineRenderer LR1 = Instantiate(LR);
+                    LR1.startWidth = LineWidth;
+                    LR1.endWidth = LineWidth;
+                    //LR1.material.color = ParseCriticalID(item.Key).Item1;
+                    LR1.positionCount = temp.Boundary.Count;
+                    LR1.transform.parent = nidie;
+                    LR1.SetPositions(temp.Boundary.ToArray());
+                    //_criticalGameobjects[item.Key].Add(LR1.gameObject);
+                    //LR1.gameObject.SetActive(false);
+
+                    temp = temp.Next;
+                } while (temp != item.Value.Head);
+            }
+        }
+
         private IEnumerator GeneretorLines()
         {
             yield return new WaitForEndOfFrame();
@@ -1256,7 +1471,7 @@ namespace TEN
             {
                 //超过这个阈值则判定存在两国交界不唯一的情况。
                 float maxDis = 10;
-                List<List<Vector3>> allCritical = new()
+                List<List<Vector3>> allCritical = new List<List<Vector3>>() 
                 {
                     new List<Vector3>()
                 };
@@ -1299,7 +1514,7 @@ namespace TEN
                 Color lineColor = item.Key;
                 lineColor.a = 0.5f;
                 List<List<Vector3>> linePoints = item.Value;
-                c2m.Add(item.Key, new());
+                c2m.Add(item.Key, new List<MeshRenderer>());
 
                 foreach (var Points in linePoints)
                 {
