@@ -8,6 +8,220 @@ namespace TEN
     public partial class PaseMaster
     {
 
+
+        bool SegmentsAreConnected(List<Vector3> segA, List<Vector3> segB, float threshold)
+        {
+            var endpointsA = new Vector3[] { segA[0], segA[segA.Count - 1] };
+            var endpointsB = new Vector3[] { segB[0], segB[segB.Count - 1] };
+
+            foreach (var a in endpointsA)
+                foreach (var b in endpointsB)
+                    if (Vector3.Distance(a, b) <= threshold)
+                        return true;
+
+            return false;
+        }
+
+
+        Mesh GenerateMeshForPolygonXY(List<Vector3> polygon, float meshHeight)
+        {
+            if (ComputeSignedAreaXY(polygon) < 0)
+                polygon.Reverse();
+
+            Tess tess = new Tess();
+
+            tess.AddContour(polygon.Select(v => new ContourVertex
+            {
+                Position = new Vec3 { X = v.x, Y = v.y, Z = meshHeight }
+            }).ToArray());
+
+            tess.Tessellate(WindingRule.EvenOdd, ElementType.Polygons, 3);
+
+            Mesh mesh = new Mesh
+            {
+                vertices = tess.Vertices.Select(v => new Vector3(v.Position.X, v.Position.Y, meshHeight)).ToArray(),
+                triangles = tess.Elements
+            };
+
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+
+            return mesh;
+        }
+
+        // XY平面面积计算
+        float ComputeSignedAreaXY(List<Vector3> polygon)
+        {
+            float area = 0;
+            int j = polygon.Count - 1;
+
+            for (int i = 0; i < polygon.Count; i++)
+            {
+                area += (polygon[j].x + polygon[i].x) * (polygon[j].y - polygon[i].y);
+                j = i;
+            }
+
+            return area * 0.5f;
+        }
+
+        Mesh GenerateMeshWithHoles(List<List<Vector3>> polygons)
+        {
+            Tess tess = new Tess();
+            var areas = CalculatePolygonsAreas(polygons);
+            List<Vector3> outer = FindOuterContour(polygons);
+            if (outer == null)
+            {
+                Debug.Log("Mesh is null");
+                return new Mesh();
+            }
+
+            // 外轮廓必须是顺时针
+            if (ComputeSignedArea(outer) < 0)
+                outer.Reverse();
+
+            tess.AddContour(outer.Select(v => new ContourVertex
+            {
+                Position = new Vec3 { X = v.x, Y = v.y, Z = 0 },
+                //Position = new Vec3 { X = v.x, Y = MeshHeight, Z = v.z },
+            }).ToArray());
+
+            // 孔洞轮廓（逆时针）
+            foreach (var (poly, _) in areas)
+            {
+                if (poly == outer)
+                    continue;
+
+                if (IsPolygonInsideAnother(poly, outer))
+                {
+                    if (ComputeSignedArea(poly) > 0)
+                        poly.Reverse();
+
+                    tess.AddContour(poly.Select(v => new ContourVertex
+                    {
+                        Position = new Vec3 { X = v.x, Y = v.y, Z = 0 }
+                        //Position = new Vec3 { X = v.x, Y = MeshHeight, Z = v.z }
+                    }).ToArray());
+                }
+            }
+
+            tess.Tessellate(WindingRule.EvenOdd, ElementType.Polygons, 3);
+
+            Mesh mesh = new Mesh
+            {
+                vertices = tess.Vertices.Select(v => new Vector3(v.Position.X, v.Position.Y, 0)).ToArray(),
+                triangles = tess.Elements
+            };
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+
+        // 计算多个多边形的面积，并返回每个多边形及其面积的元组列表
+        List<(List<Vector3> polygon, float area)> CalculatePolygonsAreas(List<List<Vector3>> polygons)
+        {
+            var results = new List<(List<Vector3>, float)>();
+
+            foreach (var polygon in polygons)
+            {
+                float area = ComputeSignedArea1(polygon);
+                results.Add((polygon, area));
+            }
+
+            return results;
+        }
+
+        // 多边形的带符号面积计算函数（XZ平面）
+        float ComputeSignedArea1(List<Vector3> polygon)
+        {
+            float area = 0;
+            int j = polygon.Count - 1;
+
+            for (int i = 0; i < polygon.Count; i++)
+            {
+                area += (polygon[j].x + polygon[i].x) * (polygon[j].z - polygon[i].z);
+                j = i;
+            }
+
+            return area * 0.5f;
+        }
+
+        List<Vector3> FindOuterContour(List<List<Vector3>> polygons)
+        {
+            float maxArea = float.MinValue;
+            List<Vector3> outer = null;
+            foreach (var poly in polygons)
+            {
+                float area = Mathf.Abs(ComputeSignedArea(poly));
+                if (area > maxArea)
+                {
+                    maxArea = area;
+                    outer = poly;
+                }
+            }
+            return outer;
+        }
+
+        bool IsPolygonInsideAnother(List<Vector3> inner, List<Vector3> outer)
+        {
+            // 使用多边形内一点判断是否在外轮廓内
+            Vector3 testPoint = inner[0];
+            return IsPointInPolygon(testPoint, outer);
+        }
+
+        bool IsPointInPolygon(Vector3 p, List<Vector3> polygon)
+        {
+            int count = polygon.Count;
+            bool inside = false;
+            for (int i = 0, j = count - 1; i < count; j = i++)
+            {
+                if (((polygon[i].z > p.z) != (polygon[j].z > p.z)) &&
+                    (p.x < (polygon[j].x - polygon[i].x) * (p.z - polygon[i].z) / (polygon[j].z - polygon[i].z) + polygon[i].x))
+                    inside = !inside;
+            }
+            return inside;
+        }
+
+
+
+        Mesh GenerateMeshFromPolygons(List<List<Vector3>> polygons)
+        {
+            Tess tess = new Tess();
+
+            foreach (var polygon in polygons)
+            {
+                if (ComputeSignedArea(polygon) < 0)
+                    polygon.Reverse();
+
+                ContourVertex[] contour = polygon.Select(p => new ContourVertex
+                {
+                    Position = new Vec3 { X = p.x, Y = p.y, Z = 0 },
+                    //Position = new Vec3 { X = p.x, Y = MeshHeight, Z = p.z },
+                }).ToArray();
+
+                tess.AddContour(contour, ContourOrientation.Original);
+            }
+
+            tess.Tessellate(WindingRule.EvenOdd, ElementType.Polygons, 3);
+
+            Vector3[] meshVertices = tess.Vertices
+                //.Select(v => new Vector3(v.Position.X, MeshHeight, v.Position.Z))
+                .Select(v => new Vector3(v.Position.X, v.Position.Y, v.Position.Z))
+                .ToArray();
+
+            Mesh mesh = new Mesh
+            {
+                vertices = meshVertices,
+                triangles = tess.Elements
+            };
+
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+
+            return mesh;
+        }
+
+
         /// <summary>
         /// 利用 LibTessDotNet 根据闭合边界生成填充三角形，并生成 Unity 的 Mesh。
         /// </summary>
@@ -31,7 +245,7 @@ namespace TEN
                 contour[i] = new ContourVertex()
                 {
                     //Position = new Vec3 { X = p.x, Y = p.y, Z = 0 },
-                    Position = new Vec3 { X = p.x, Y = MeshHeight, Z = p.z },
+                    Position = new Vec3 { X = p.x, Y = p.y, Z = p.z },
                     Data = null
                 };
             }
@@ -52,7 +266,7 @@ namespace TEN
             for (int i = 0; i < tessVertices.Length; i++)
             {
                 // 将 LibTessDotNet 的 Vec3 转换到 Unity 的 Vector3
-                meshVertices[i] = new Vector3(tessVertices[i].Position.X, MeshHeight, tessVertices[i].Position.Z);
+                meshVertices[i] = new Vector3(tessVertices[i].Position.X, tessVertices[i].Position.Y, tessVertices[i].Position.Z);
                 //meshVertices[i] = new Vector3(tessVertices[i].Position.X, tessVertices[i].Position.Y, 0);
             }
 

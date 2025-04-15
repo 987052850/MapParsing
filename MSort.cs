@@ -26,6 +26,139 @@ namespace TEN
         //new Vector3Int(-1, 1 , 0)    // 左上
         };
 
+
+        public static List<List<Vector3>> SplitByDistance(List<Vector3> points, float maxGap = 2.0f, bool autoClose = true)
+        {
+            List<List<Vector3>> result = new List<List<Vector3>>();
+
+            if (points == null || points.Count == 0)
+                return result;
+
+            List<Vector3> current = new List<Vector3>();
+            current.Add(points[0]);
+
+            for (int i = 1; i < points.Count; i++)
+            {
+                float dist = Vector3.Distance(points[i], points[i - 1]);
+
+                if (dist > maxGap && current.Count > 2)
+                {
+                    if (autoClose && Vector3.Distance(current[0], current[^1]) <= maxGap)
+                        current.Add(current[0]); // 自动闭合
+
+                    result.Add(new List<Vector3>(current));
+                    current.Clear();
+                }
+
+                current.Add(points[i]);
+            }
+
+            if (current.Count > 2)
+            {
+                if (autoClose && Vector3.Distance(current[0], current[^1]) <= maxGap)
+                    current.Add(current[0]);
+
+                result.Add(current);
+            }
+
+            return result;
+        }
+
+
+        public static List<List<Vector3>> TraceContours(List<Vector3> points, float tolerance = 0.1f)
+        {
+            HashSet<Vector3> unvisited = new HashSet<Vector3>(points);
+            List<List<Vector3>> contours = new List<List<Vector3>>();
+
+            while (unvisited.Count > 0)
+            {
+                Vector3 start = unvisited.First();
+                List<Vector3> contour = new List<Vector3>();
+                Stack<Vector3> mulNeigNode = new Stack<Vector3>();
+
+                contour.Add(start);
+                unvisited.Remove(start);
+
+                Vector3 current = start;
+                Vector3? nextPoint = null;
+
+                while (true)
+                {
+                    bool foundNeighbor = false;
+
+                    foreach (var offset in Neighbors)
+                    {
+                        Vector3 candidate = current + new Vector3(offset.x, offset.y, 0);
+
+                        // 用 tolerance 判断“近似相等”，以适应浮点精度问题
+                        Vector3 match = unvisited.FirstOrDefault(p => Vector3.Distance(p, candidate) <= tolerance);
+                        if (match != default)
+                        {
+                            if (foundNeighbor)
+                            {
+                                mulNeigNode.Push(current);
+                                break;
+                            }
+
+                            nextPoint = match;
+                            foundNeighbor = true;
+                        }
+                    }
+
+                    if (!foundNeighbor)
+                    {
+                        // 尝试回溯处理多邻点分支
+                        bool backtracked = false;
+                        while (mulNeigNode.Count > 0)
+                        {
+                            Vector3 temp = mulNeigNode.Pop();
+
+                            foreach (var offset in Neighbors)
+                            {
+                                Vector3 candidate = temp + new Vector3(offset.x, offset.y, 0);
+                                Vector3 match = unvisited.FirstOrDefault(p => Vector3.Distance(p, candidate) <= tolerance);
+                                if (match != default)
+                                {
+                                    nextPoint = temp;
+                                    backtracked = true;
+                                    break;
+                                }
+                            }
+
+                            if (backtracked)
+                                break;
+                        }
+
+                        if (!backtracked)
+                            break;
+                    }
+
+                    if (nextPoint.HasValue && Vector3.Distance(nextPoint.Value, start) <= tolerance && contour.Count >= 3)
+                    {
+                        contour.Add(start); // 闭合路径
+                        break;
+                    }
+                    else if (nextPoint.HasValue)
+                    {
+                        contour.Add(nextPoint.Value);
+                        unvisited.Remove(nextPoint.Value);
+                        current = nextPoint.Value;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                if (contour.Count >= 3)
+                {
+                    contours.Add(contour);
+                }
+            }
+
+            return contours;
+        }
+
         //public static Dictionary<Vector3Int, HashSet<Vector3Int>> BidirectionalGraph = new Dictionary<Vector3Int, HashSet<Vector3Int>>();
         //public IEnumerator GenertorBidirectionalGraph(int width, int height)
         //{
@@ -219,6 +352,112 @@ namespace TEN
                 if (!foundNeighbor)
                 {
                     if (mulNeigNode.Count >  0)
+                    {
+                        bool found = false;
+                        //nextPoint = mulNeigNode.Pop();
+                        while (mulNeigNode.Count > 0)
+                        {
+                            Vector3Int temp = mulNeigNode.Pop();
+                            //判断是否还存在邻居
+                            for (int i = 0; i < Neighbors.Length; i++)
+                            {
+                                int idx = (i % Neighbors.Length);
+                                Vector3Int candidate = temp + Neighbors[idx];
+
+                                // 检查候选点是否属于目标区域
+                                if (unvisited.Contains(candidate) && Range(candidate.x, candidate.y, _reslution.x, _reslution.y))
+                                {
+                                    nextPoint = temp;
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (!found)
+                            {
+                                //Debug.Log($"{temp} 邻居全噶了");
+                            }
+                            else { break; }
+                        }
+                        if (!found)
+                        {
+                            return contour;
+                        }
+                    }
+                    else
+                        return null;
+                }
+                // 如果找到了一个邻域点，并且该点就是起点（且至少有 3 个点），说明已经闭合
+                if (nextPoint == start && contour.Count >= 3)
+                {
+                    contour.Add(start); // 添加起点作为闭合标志
+                    break;
+                }
+                else
+                {
+                    if (nextPoint.Equals(Vector3Int.zero))
+                    {
+                        return contour;
+                    }
+                    // 添加这个点到轮廓，并从未访问集合中移除
+                    contour.Add(nextPoint);
+                    unvisited.Remove(nextPoint);
+                    current = nextPoint;
+                }
+                //step++;
+                //if (step >= 2 && !ddd)
+                //{
+                //    unvisited.Add(start);
+                //    ddd = true;
+                //}
+            }
+            return contour;
+        }
+
+        private static List<Vector3Int> TraceContour(ref List<Vector3Int> unvisited, Vector3Int start)
+        {
+            // 用于保存追踪得到的轮廓点序列
+            List<Vector3Int> contour = new List<Vector3Int>();
+
+            // 添加起点到轮廓，并将其从未访问集合中移除
+            contour.Add(start);
+            unvisited.Remove(start);
+
+            Stack<Vector3Int> mulNeigNode = new Stack<Vector3Int>();
+
+            // 当前追踪位置
+            Vector3Int current = start;
+            int step = 0;
+            bool ddd = false;
+
+            // 开始追踪过程
+            while (true)
+            {
+                bool foundNeighbor = false;
+                Vector3Int nextPoint = new Vector3Int();
+                // 按照顺时针方向，从 searchDir 开始扫描所有邻域位置
+                for (int i = 0; i < Neighbors.Length; i++)
+                {
+                    int idx = (i % Neighbors.Length);
+                    Vector3Int candidate = current + Neighbors[idx];
+
+                    // 检查候选点是否属于目标区域
+                    if (unvisited.Contains(candidate) && Range(candidate.x, candidate.y, _reslution.x, _reslution.y))
+                    {
+                        //Debug.Log($"找到啦 {candidate} , {Range(candidate.x, candidate.y, _reslution.x, _reslution.y)} , {unvisited.Contains(candidate)} ， {idx}");
+                        if (foundNeighbor)
+                        {
+                            mulNeigNode.Push(current);
+                            break;
+                        }
+                        nextPoint = candidate;
+                        // 更新下一次搜索方向：从当前方向的前一位开始搜索
+                        foundNeighbor = true;
+                    }
+                }
+                // 如果当前点没有找到任何有效的邻域点，则追踪失败，返回 null
+                if (!foundNeighbor)
+                {
+                    if (mulNeigNode.Count > 0)
                     {
                         bool found = false;
                         //nextPoint = mulNeigNode.Pop();

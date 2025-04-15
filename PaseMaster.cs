@@ -251,21 +251,38 @@ namespace TEN
                     {
                         continue;
                     }
-                    int iColor = _pixleMatrix[x, y];
-                    if (iColor >= 0)
+                    if (color >= 0)
                     {
-                        if (!colors_neigbor.ContainsKey(colors_inverse[iColor]))
+                        if (!colors_neigbor.ContainsKey(colors_inverse[color]))
                         {
                             //colors_neigbor[colors_inverse[iColor]] = new List<Color>();
-                            colors_neigbor.Add(colors_inverse[iColor], new List<Color>());
+                            colors_neigbor.Add(colors_inverse[color], new List<Color>());
                         }
                     }
                     //if (IsEdgeSimple(_pixleMatrix, x, y))
                     if (IsEdge(_pixleMatrix, x, y, color , out List<Color> neighbors))
                     {
-                        foreach (var item in neighbors)
+                        foreach (var neighborColor in neighbors)
                         {
-                            edges.AddPoint(colors_inverse[color], item, new Vector3Int(x, y , 0));
+
+                            bool writed = false;
+                            if (edges.BoundsMessage.ContainsKey(neighborColor))
+                            {
+                                BoundsNode temp = edges.BoundsMessage[neighborColor].Head;
+                                do
+                                {
+                                    if (temp.NeighborColor == colors_inverse[color])
+                                    {
+                                        writed = true;
+                                        break;
+                                    }
+
+                                    temp = temp.Next;
+                                } while (temp != edges.BoundsMessage[neighborColor].Head);
+                            }
+
+                            if (!writed)
+                                edges.AddPoint(colors_inverse[color], neighborColor, new Vector3Int(x, y , 0));
                         }
                         //edges[color].Add(new Vector3Int(x, y));
                     }
@@ -524,33 +541,36 @@ namespace TEN
                 {
                     int nx = Mathf.Clamp(x + i, 0, width - 1);
                     int ny = Mathf.Clamp(y + j, 0, height - 1);
-                    int iColor = mask[nx, ny];
-
-                    int val = iColor == color ? 1 : 0;
-                    if (iColor >= 0 && val == 0)
+                    int neighborColor = mask[nx, ny];
+                    int val = neighborColor == color ? 1 : 0;
+                    if (neighborColor >= 0 && val == 0)
                     {
-                        if (!colors_neigbor[colors_inverse[mColor_source]].Contains(colors_inverse[iColor]))
+                        if (!colors_neigbor[colors_inverse[mColor_source]].Contains(colors_inverse[neighborColor]))
                         {
-                            colors_neigbor[colors_inverse[mColor_source]].Add(colors_inverse[iColor]);
+                            colors_neigbor[colors_inverse[mColor_source]].Add(colors_inverse[neighborColor]);
                         }
                     }
-                    if (val == 1)
+                    if (val == 0)
                     {
-                        if (iColor >= 0)
-                        {
-                            if (!neighbor.Contains(colors_inverse[iColor]))
+                            if (!neighbor.Contains(colors_inverse[neighborColor]))
                             {
-                                neighbor.Add(colors_inverse[iColor]);
+                                neighbor.Add(colors_inverse[neighborColor]);
                             }
-                        }
-                        else
-                        {
-                            if (!neighbor.Contains(BadColor))
-                            {
-                                neighbor.Add(BadColor);
-                            }
-                        }
+                        //else
+                        //{
+                        //    if (!neighbor.Contains(BadColor))
+                        //    {
+                        //        neighbor.Add(BadColor);
+                        //    }
+                        //}
                     }
+                    //else
+                    //{
+                    //    if (!neighbor.Contains(BadColor))
+                    //    {
+                    //        neighbor.Add(BadColor);
+                    //    }
+                    //}
 
                     gradX += gx[i + 1, j + 1] * val;
                     gradY += gy[i + 1, j + 1] * val;
@@ -669,6 +689,63 @@ namespace TEN
             RenderTexture.active = previous;
             RenderTexture.ReleaseTemporary(renderTex);
             return readableText;
+        }
+
+
+        public static List<Vector3> GetCatmullRomSplineOpen(List<Vector3> points, int subdivisions)
+        {
+            if (points == null || points.Count < 2)
+            {
+                // 至少需要两个点来构成一条线段
+                return null;
+            }
+
+            // 扩展原始点列表：在开头和结尾各复制一个端点
+            List<Vector3> extendedPoints = new List<Vector3>();
+            extendedPoints.Add(points[0]);           // 在开头复制第一个点
+            extendedPoints.AddRange(points);
+            extendedPoints.Add(points[points.Count - 1]); // 在结尾复制最后一个点
+
+            List<Vector3> splinePoints = new List<Vector3>();
+
+            // 对扩展列表中每连续4个点，计算一个曲线段
+            // 这里 i 从 0 到 extendedPoints.Count - 4，保证有 p0, p1, p2, p3 四个点
+            for (int i = 0; i < extendedPoints.Count - 3; i++)
+            {
+                Vector3 p0 = extendedPoints[i];
+                Vector3 p1 = extendedPoints[i + 1];
+                Vector3 p2 = extendedPoints[i + 2];
+                Vector3 p3 = extendedPoints[i + 3];
+
+                // 对当前段细分 subdivisions 次
+                for (int j = 0; j < subdivisions; j++)
+                {
+                    float t = j / (float)subdivisions;
+                    float t2 = t * t;
+                    float t3 = t2 * t;
+
+                    // Catmull-Rom 插值公式：
+                    // P(t) = 0.5 * [2P1 + (P2 - P0)t + (2P0 - 5P1 + 4P2 - P3)t² + (-P0 + 3P1 - 3P2 + P3)t³]
+                    float x = 0.5f * (2 * p1.x +
+                                      (-p0.x + p2.x) * t +
+                                      (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+                                      (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+                    float y = 0.5f * (2 * p1.y +
+                                      (-p0.y + p2.y) * t +
+                                      (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+                                      (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+                    float z = 0.5f * (2 * p1.z +
+                                      (-p0.z + p2.z) * t +
+                                      (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t2 +
+                                      (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * t3);
+
+                    splinePoints.Add(new Vector3(x, y, z));
+                }
+            }
+            // 最后把最后一个点加入（确保曲线终点完整）
+            splinePoints.Add(points[points.Count - 1]);
+
+            return splinePoints;
         }
 
         /// <summary>
@@ -880,8 +957,87 @@ namespace TEN
                 result.Add(current.Point);
                 current = current.Next;
             }
+            result.RemoveAt(result.Count - 1); // 移除最后一个点，避免重复
             return result;
         }
+        public static List<Vector3> SimplifyLine(List<Vector3> points, float areaThreshold)
+        {
+            if (points == null)
+                return null;
+
+            if (points.Count < 3)
+                return new List<Vector3>(points);
+
+            List<Node> nodes = new List<Node>();
+            for (int i = 0; i < points.Count; i++)
+            {
+                Node node = new Node { Point = points[i] };
+                nodes.Add(node);
+            }
+
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                if (i > 0)
+                    nodes[i].Prev = nodes[i - 1];
+                if (i < nodes.Count - 1)
+                    nodes[i].Next = nodes[i + 1];
+            }
+
+            // 首尾点有效面积设置为无穷大，确保它们不会被移除
+            nodes[0].Area = float.MaxValue;
+            nodes[nodes.Count - 1].Area = float.MaxValue;
+
+            for (int i = 1; i < nodes.Count - 1; i++)
+            {
+                nodes[i].Area = CalculateTriangleArea(nodes[i].Prev.Point, nodes[i].Point, nodes[i].Next.Point);
+            }
+
+            bool removed = true;
+            while (removed)
+            {
+                removed = false;
+                Node minNode = null;
+
+                foreach (var node in nodes)
+                {
+                    if (node.Area < areaThreshold)
+                    {
+                        if (minNode == null || node.Area < minNode.Area)
+                            minNode = node;
+                    }
+                }
+
+                if (minNode != null)
+                {
+                    removed = true;
+
+                    if (minNode.Prev != null)
+                        minNode.Prev.Next = minNode.Next;
+                    if (minNode.Next != null)
+                        minNode.Next.Prev = minNode.Prev;
+
+                    if (minNode.Prev != null && minNode.Prev.Prev != null && minNode.Next != null)
+                        minNode.Prev.Area = CalculateTriangleArea(minNode.Prev.Prev.Point, minNode.Prev.Point, minNode.Next.Point);
+
+                    if (minNode.Next != null && minNode.Next.Next != null && minNode.Prev != null)
+                        minNode.Next.Area = CalculateTriangleArea(minNode.Prev.Point, minNode.Next.Point, minNode.Next.Next.Point);
+
+                    nodes.Remove(minNode);
+                }
+            }
+
+            List<Vector3> result = new List<Vector3>();
+            Node current = nodes[0];
+            while (current != null)
+            {
+                result.Add(current.Point);
+                current = current.Next;
+            }
+
+            // 对于线段概化，不再删除最后一个点
+            return result;
+        }
+
 
         /// <summary>
         /// 根据三个点计算三角形面积（使用向量叉乘）。
@@ -917,6 +1073,9 @@ namespace TEN
                     _pixleMatrix[i, j] = -1;
                 }
             }
+            colors.Add(BadColor, -1);
+            colors_inverse.Add(-1, BadColor);
+
             for (int i = 0; i < ASD.width; i++)
             {
                 for (int j = 0; j < ASD.height; j++)
@@ -997,22 +1156,162 @@ namespace TEN
         {
             public Color SelfColor;
             public Color NeighborColor;
-            public List<Vector3> Boundary;
+            public List<Vector3Int> Boundary;
+            public List<List<Vector3>> Filtered;
             public BoundsNode Next;
-            public BoundsNode(Color selfColor , Color neighborColor)
+            public BoundsNode(Color selfColor, Color neighborColor)
             {
                 SelfColor = selfColor;
                 NeighborColor = neighborColor;
-                Boundary = new List<Vector3>();
+                Boundary = new List<Vector3Int>();
+                Filtered = new ();
             }
             public BoundsNode(BoundsNode data)
             {
                 SelfColor = data.SelfColor;
                 NeighborColor = data.NeighborColor;
-                Boundary = new List<Vector3>(data.Boundary);
+                Boundary = new List<Vector3Int>(data.Boundary);
             }
-        }
 
+            // 输入：List<Vector3Int> boundaryPoints，所有边界像素点
+            // 输出：List<List<Vector3Int>> sortedSegments，按顺序排列的独立线段
+
+            public List<List<Vector3Int>> SplitAndSortBoundary(List<Vector3Int> boundaryPoints)
+            {
+                List<List<Vector3Int>> segments = new List<List<Vector3Int>>();
+                if (boundaryPoints == null || boundaryPoints.Count == 0)
+                    return segments;
+
+                // 构建邻接字典：每个点 -> 与之相邻的所有点（选用 8 邻域作为示例）
+                Dictionary<Vector3Int, List<Vector3Int>> neighborsDict = new Dictionary<Vector3Int, List<Vector3Int>>();
+                HashSet<Vector3Int> pointSet = new HashSet<Vector3Int>(boundaryPoints);
+                foreach (var p in boundaryPoints)
+                {
+                    List<Vector3Int> nbrs = new List<Vector3Int>();
+                    foreach (var n in GetNeighbors(p)) // GetNeighbors 返回 8 个可能的邻域点
+                    {
+                        if (pointSet.Contains(n))
+                            nbrs.Add(n);
+                    }
+                    neighborsDict[p] = nbrs;
+                }
+
+                // 用于标记已经处理过的点
+                HashSet<Vector3Int> visited = new HashSet<Vector3Int>();
+
+                // 遍历所有点，提取连通组件
+                foreach (var p in boundaryPoints)
+                {
+                    if (visited.Contains(p))
+                        continue;
+
+                    // 使用 BFS 或 DFS 获取一个连通组件（无序集）
+                    List<Vector3Int> component = new List<Vector3Int>();
+                    Queue<Vector3Int> queue = new Queue<Vector3Int>();
+                    queue.Enqueue(p);
+                    visited.Add(p);
+                    while (queue.Count > 0)
+                    {
+                        var current = queue.Dequeue();
+                        component.Add(current);
+                        foreach (var nbr in neighborsDict[current])
+                        {
+                            if (!visited.Contains(nbr))
+                            {
+                                visited.Add(nbr);
+                                queue.Enqueue(nbr);
+                            }
+                        }
+                    }
+
+                    // 对当前连通组件尝试排序：
+                    List<List<Vector3Int>> componentSegments = SortComponent(component, neighborsDict);
+                    segments.AddRange(componentSegments);
+                    //segments.AddRange(new List<List<Vector3Int>>() { component });
+                }
+
+                return segments;
+            }
+
+            /// <summary>
+            /// 获取 8 邻域中所有候选点
+            /// </summary>
+            private List<Vector3Int> GetNeighbors(Vector3Int p)
+            {
+                List<Vector3Int> nbrs = new List<Vector3Int>();
+                //for (int dx = -1; dx <= 1; dx++)
+                //{
+                //    for (int dy = -1; dy <= 1; dy++)
+                //    {
+                //        if (dx == 0 && dy == 0)
+                //            continue;
+                //        nbrs.Add(new Vector3Int(p.x + dx, p.y + dy, p.z)); // 假设 z 不变
+                //    }
+                //}
+
+                nbrs.Add(p + new Vector3Int(0, 1, 0));
+                //nbrs.Add(p + new Vector3Int(1, 1, 0));
+                nbrs.Add(p + new Vector3Int(1, 0, 0));
+                //nbrs.Add(p + new Vector3Int(1, -1, 0));
+                nbrs.Add(p + new Vector3Int(0, -1, 0));
+                //nbrs.Add(p + new Vector3Int(-1, -1, 0));
+                nbrs.Add(p + new Vector3Int(-1, 0, 0));
+                //nbrs.Add(p + new Vector3Int(-1, 1, 0));
+
+                return nbrs;
+            }
+
+            /// <summary>
+            /// 对连通组件中的点进行排序，分解为一个或多个线段
+            /// </summary>
+            private List<List<Vector3Int>> SortComponent(List<Vector3Int> component, Dictionary<Vector3Int, List<Vector3Int>> neighborsDict)
+            {
+                List<List<Vector3Int>> segments = new List<List<Vector3Int>>();
+                HashSet<Vector3Int> used = new HashSet<Vector3Int>();
+
+                // 找出所有端点（邻居数==1）
+                List<Vector3Int> endpoints = component.FindAll(p => neighborsDict[p].Count == 1);
+
+                // 用于跟踪尚未处理的节点
+                Queue<Vector3Int> pointsToProcess = new Queue<Vector3Int>(endpoints.Count > 0 ? endpoints : component);
+
+                while (pointsToProcess.Count > 0)
+                {
+                    Vector3Int start = pointsToProcess.Dequeue();
+
+                    // 跳过已访问节点
+                    if (used.Contains(start))
+                        continue;
+
+                    List<Vector3Int> segment = new List<Vector3Int>();
+                    Vector3Int current = start;
+                    Vector3Int prev = default(Vector3Int);
+
+                    while (true)
+                    {
+                        segment.Add(current);
+                        used.Add(current);
+
+                        // 找未访问的邻居，不包括前一个节点
+                        var nextCandidates = neighborsDict[current].FindAll(n => !n.Equals(prev) && !used.Contains(n));
+
+                        if (nextCandidates.Count == 0)
+                            break;
+
+                        // 选择下一个邻居（可以根据需求优化）
+                        Vector3Int next = nextCandidates[0];
+
+                        prev = current;
+                        current = next;
+                    }
+
+                    segments.Add(segment);
+                }
+
+                return segments;
+            }
+
+        }
         public class BoundsCircularLink
         {
             public BoundsNode Head;
@@ -1032,6 +1331,30 @@ namespace TEN
                 Tail.Next = data;
                 data.Next = Head;
                 Tail = data;
+            }
+
+            public List<List<Vector3>> GetAllJunctionLine()
+            {
+                List<List<Vector3>> outValue = new List<List<Vector3>>();
+                BoundsNode temp = Head;
+                do
+                {
+                    outValue.AddRange(temp.Filtered);
+                    temp = temp.Next;
+                } while (temp != Head);
+                return outValue;
+            }
+
+            public HashSet<Color> GetNeighborsColor()
+            {
+                HashSet<Color> outValue = new ();
+                BoundsNode temp = Head;
+                do
+                {
+                    outValue.Add(temp.NeighborColor);
+                    temp = temp.Next;
+                } while (temp != Head);
+                return outValue;
             }
 
             public bool ConditionsColor(Color color)
@@ -1080,9 +1403,31 @@ namespace TEN
                 }
                 else
                 {
+                    if (!BoundsMessage[mColor].ConditionsColor(nColor))
+                    {
+                        BoundsMessage[mColor].Insert(new BoundsNode(mColor , nColor));
+                    }
                     BoundsMessage[mColor].GetNerighbor(nColor).Boundary.Add(vector3);
                 }
             }
+
+            public List<List<Vector3>> GetAllJunctionLine(Color mColor)
+            {
+                BoundsCircularLink temp = BoundsMessage[mColor];
+                List<List<Vector3>> outValue = new List<List<Vector3>>(temp.GetAllJunctionLine());
+                List<Color> nColors1 = new List<Color>(colors_neigbor[mColor]);
+                HashSet<Color> nColors2 = temp.GetNeighborsColor();
+                foreach (var item in nColors1)
+                {
+                    if (!nColors2.Contains(item))
+                    {
+                        outValue.AddRange(BoundsMessage[item].GetNerighbor(mColor).Filtered);
+
+                    }
+                }
+                return outValue;
+            }
+
         }
 
         private IEnumerator GeneretorLines_v2()
@@ -1090,25 +1435,598 @@ namespace TEN
             yield return new WaitForEndOfFrame();
             ResetMapColor();
             BoundsMessageGroup group = GetBoundsLine();
-            Transform nidie = new GameObject("nidie").transform;
+            //Sort(group);
+            Transform nidie = new GameObject("LineDad").transform;
+            Transform nidie1 = new GameObject("Border").transform;
             foreach (var item in group.BoundsMessage)
             {
                 BoundsNode temp = item.Value.Head;
                 do
                 {
-                    LineRenderer LR1 = Instantiate(LR);
-                    LR1.startWidth = LineWidth;
-                    LR1.endWidth = LineWidth;
-                    //LR1.material.color = ParseCriticalID(item.Key).Item1;
-                    LR1.positionCount = temp.Boundary.Count;
-                    LR1.transform.parent = nidie;
-                    LR1.SetPositions(temp.Boundary.ToArray());
-                    //_criticalGameobjects[item.Key].Add(LR1.gameObject);
-                    //LR1.gameObject.SetActive(false);
+                    if (temp.Boundary != null)
+                    {
+                        List<List<Vector3Int>> linesPoints = temp.SplitAndSortBoundary(temp.Boundary);
+                        foreach (var linePoints in linesPoints)
+                        {
+                            List<Vector3> filtered = linePoints.Select(v => (Vector3)v).ToList();
+                            temp.Filtered.Add(filtered);
+                        }
+                    }
+                    temp = temp.Next;
+                } while (temp != item.Value.Head);
+                List<List<Vector3>> llTemp = group.GetAllJunctionLine(temp.SelfColor);
+                // 提取每个明确闭合的多边形
+                List<Vector3> meshPoints = CombineSegmentsIntoClosedPolygon(llTemp);
+            }
 
+            foreach (var item in group.BoundsMessage)
+            {
+                BoundsNode temp = item.Value.Head;
+                do
+                {
+                    if (temp.Boundary != null)
+                    {
+                        for (int i = 0; i < temp.Filtered.Count; i++)
+                        {
+                            if (Catmull)
+                                temp.Filtered[i] = GetClosedCatmullRomSpline(temp.Filtered[i], InsertPointCount);
+                            else
+                                temp.Filtered[i] = GetCatmullRomSplineOpen(temp.Filtered[i], InsertPointCount);
+
+                            if (VisvalingamWhyatt)
+                                //filtered = Simplify(filtered, Area);
+                                temp.Filtered[i] = SimplifyLine(temp.Filtered[i], Area);
+
+                            if (Catmull)
+                                temp.Filtered[i] = GetClosedCatmullRomSpline(temp.Filtered[i], InsertPointCount);
+                            else
+                                temp.Filtered[i] = GetCatmullRomSplineOpen(temp.Filtered[i], InsertPointCount);
+
+                            if (temp.Filtered[i] == null)
+                            {
+                                continue;
+                            }
+                            //temp.Filtered.Add(temp.Filtered[i]);
+                        }
+                    }
                     temp = temp.Next;
                 } while (temp != item.Value.Head);
             }
+
+            Transform meshDad = new GameObject("Country").transform;
+            //foreach (var item in group.BoundsMessage)
+            //{
+            //    BoundsNode temp = item.Value.Head;
+            //    List<List<Vector3>> llTemp = group.GetAllJunctionLine(temp.SelfColor);
+
+            //    var separatedAreas = SplitIntoSeparateAreas(llTemp);
+
+            //    foreach (var areaSegments in separatedAreas)
+            //    {
+            //        List<List<Vector3>> allContours = areaSegments.Select(seg => CombineSegmentsIntoClosedPolygon(new List<List<Vector3>> { seg })).ToList();
+
+            //        Mesh mesh = GenerateMeshWithHoles(allContours);
+
+            //        foreach (var lineItem in allContours)
+            //        {
+            //            // 绘制线
+            //            LineRenderer LR1 = Instantiate(LR);
+            //            LR1.startWidth = LineWidth;
+            //            LR1.endWidth = LineWidth;
+            //            LR1.positionCount = lineItem.Count;
+            //            LR1.transform.parent = nidie;
+            //            LR1.SetPositions(lineItem.ToArray());
+            //        }
+
+            //        GameObject gg = new GameObject("Mesh_" + temp.SelfColor.ToString());
+            //        MeshFilter mf = gg.AddComponent<MeshFilter>();
+            //        MeshRenderer mr = gg.AddComponent<MeshRenderer>();
+            //        mf.mesh = mesh;
+            //        mr.material = new Material(gridMat) { color = temp.SelfColor };
+            //        gg.transform.parent = meshDad;
+            //    }
+            //}
+
+
+            //foreach (var item in group.BoundsMessage)
+            //{
+            //    BoundsNode temp = item.Value.Head;
+            //    List<List<Vector3>> llTemp = group.GetAllJunctionLine(temp.SelfColor);
+
+            //    // 区域分离
+            //    var separatedAreas = SplitIntoSeparateAreas(llTemp);
+
+            //    foreach (var areaSegments in separatedAreas)
+            //    {
+            //        // 拼接每个区域
+            //        List<Vector3> polygon = CombineSegmentsIntoClosedPolygon(areaSegments);
+
+            //        // 绘制线
+            //        LineRenderer LR1 = Instantiate(LR);
+            //        LR1.startWidth = LineWidth;
+            //        LR1.endWidth = LineWidth;
+            //        LR1.positionCount = polygon.Count;
+            //        LR1.transform.parent = nidie;
+            //        LR1.SetPositions(polygon.ToArray());
+
+            //        // 生成Mesh
+            //        Mesh mesh;
+            //        if (!GetConnected(polygon))
+            //            mesh = GenerateMeshFromPolygons(new List<List<Vector3>> { polygon });
+            //        else
+            //        {
+            //            Debug.Log("闭合多边形");
+            //            //List<Vector3> meshPoints = CombineSegmentsIntoClosedPolygon(llTemp);
+            //            mesh = GenerateMeshFromPolygon(polygon);
+            //        }
+
+            //        // 创建 GameObject 显示该 Mesh
+            //        GameObject gg = new GameObject("Mesh_" + temp.SelfColor.ToString());
+            //        MeshFilter mf = gg.AddComponent<MeshFilter>();
+            //        MeshRenderer mr = gg.AddComponent<MeshRenderer>();
+            //        mf.mesh = mesh;
+            //        mr.material = new Material(gridMat) { color = temp.SelfColor };
+            //        gg.transform.parent = meshDad;
+            //    }
+
+            //foreach (var item in group.BoundsMessage)
+            //{
+            //    BoundsNode temp = item.Value.Head;
+            //    List<List<Vector3>> llTemp = group.GetAllJunctionLine(temp.SelfColor);
+
+            //    // 明确提取闭合多边形
+            //    List<List<Vector3>> closedPolygons = ExtractClosedPolygons(llTemp);
+            //    if (closedPolygons == null)
+            //    {
+            //        continue;
+            //    }
+
+            //    // 生成含孔洞Mesh
+            //    Mesh mesh = GenerateMeshWithHoles(closedPolygons);
+
+            //    // 绘制Mesh
+            //    GameObject gg = new GameObject("Mesh_" + temp.SelfColor.ToString());
+            //    MeshFilter mf = gg.AddComponent<MeshFilter>();
+            //    MeshRenderer mr = gg.AddComponent<MeshRenderer>();
+            //    mf.mesh = mesh;
+            //    mr.material = new Material(gridMat) { color = temp.SelfColor };
+            //    gg.transform.parent = meshDad;
+            //}
+            _criticalGameobjects.Clear();
+            foreach (var item in group.BoundsMessage)
+            {
+                BoundsNode temp = item.Value.Head;
+                List<List<Vector3>> llTemp = group.GetAllJunctionLine(temp.SelfColor);
+                if (llTemp == null)
+                {
+                    continue;
+                }
+                // 提取每个明确闭合的多边形
+                List<Vector3> meshPoints = CombineSegmentsIntoClosedPolygon(llTemp);
+                meshPoints = meshPoints.ConvertAll(p => _transMatr.MultiplyPoint(p));
+                if (!c2m.ContainsKey(temp.SelfColor))
+                {
+                    c2m.Add(temp.SelfColor, new List<MeshRenderer>());
+                }
+
+
+                if (GetConnected(meshPoints , 5))
+                {
+                    //LineRenderer LR1 = Instantiate(LR);
+                    //LR1.startWidth = LineWidth;
+                    //LR1.endWidth = LineWidth;
+                    ////LR1.material.color = ParseCriticalID(item.Key).Item1;
+                    //LR1.positionCount = meshPoints.Count;
+                    //LR1.transform.parent = nidie;
+                    //LR1.SetPositions(meshPoints.ToArray());
+                    Mesh mesh = GenerateMeshFromPolygon(meshPoints);
+                    // 创建新 GameObject 用于显示该 Mesh
+                    GameObject gg = new GameObject("Mesh_" + temp.SelfColor.ToString());
+
+                    // 添加 MeshFilter 和 MeshRenderer 组件
+                    MeshFilter mf = gg.AddComponent<MeshFilter>();
+                    MeshRenderer mr = gg.AddComponent<MeshRenderer>();
+
+                    // 赋值生成的 Mesh
+                    mf.mesh = mesh;
+
+                    // 创建材质实例，并设置颜色
+                    mr.material = new Material(gridMat) { color = temp.SelfColor };
+                    gg.transform.parent = meshDad;
+                    c2m[temp.SelfColor].Add(mr);
+                }
+                else
+                {
+                    List<List<Vector3>> allAreas = SplitByDistance(meshPoints);
+
+                    foreach (var splitArea in allAreas)
+                    {
+                        //List<Vector3> tempPoints = splitArea;
+                        //if (Vector3.Distance(tempPoints[0] , tempPoints[tempPoints.Count - 1])>0.001f)
+                        //{
+
+                        //}
+                        //LineRenderer LR1 = Instantiate(LR);
+                        //LR1.startWidth = LineWidth;
+                        //LR1.endWidth = LineWidth;
+                        ////LR1.material.color = ParseCriticalID(item.Key).Item1;
+                        //LR1.positionCount = splitArea.Count;
+                        //LR1.transform.parent = nidie;
+                        //LR1.SetPositions(splitArea.ToArray());
+
+                        Mesh mesh = GenerateMeshFromPolygon(splitArea);
+                        // 创建新 GameObject 用于显示该 Mesh
+                        GameObject gg = new GameObject("Mesh_" + temp.SelfColor.ToString());
+
+                        // 添加 MeshFilter 和 MeshRenderer 组件
+                        MeshFilter mf = gg.AddComponent<MeshFilter>();
+                        MeshRenderer mr = gg.AddComponent<MeshRenderer>();
+
+                        // 赋值生成的 Mesh
+                        mf.mesh = mesh;
+
+                        // 创建材质实例，并设置颜色
+                        mr.material = new Material(gridMat) { color = temp.SelfColor };
+                        gg.transform.parent = meshDad;
+                        c2m[temp.SelfColor].Add(mr);
+                    }
+                }
+
+
+                #region draw line
+                do
+                {
+                    Int64 lColor = GenerateCriticalID(temp.SelfColor ,temp.NeighborColor);
+                    if (!_criticalGameobjects.ContainsKey(lColor))
+                    {
+                        _criticalGameobjects.Add(lColor,new List<GameObject>());
+                    }
+                    if (temp.Filtered != null)
+                    {
+                        foreach (var linePoints in temp.Filtered)
+                        {
+
+                            if (linePoints == null)
+                            {
+                                continue;
+                            }
+                            List<Vector3> pointsConverted = linePoints.ConvertAll(p => _transMatr.MultiplyPoint(p));
+                            LineRenderer LR1 = Instantiate(LR);
+                            LR1.startWidth = LineWidth;
+                            LR1.endWidth = LineWidth;
+                            //LR1.material.color = ParseCriticalID(item.Key).Item1;
+                            LR1.positionCount = pointsConverted.Count;
+                            LR1.transform.parent = nidie1;
+                            LR1.SetPositions(pointsConverted.ToArray());
+                            _criticalGameobjects[lColor].Add(LR1.gameObject);
+                        }
+                    }
+                    temp = temp.Next;
+                } while (temp != item.Value.Head);
+                #endregion
+
+            }
+            Dictionary<Vector3, List<Vector3>> BuildAdjacency(List<List<Vector3>> segments)
+            {
+                var adj = new Dictionary<Vector3, List<Vector3>>();
+
+                foreach (var seg in segments)
+                {
+                    if (!adj.ContainsKey(seg[0]))
+                        adj[seg[0]] = new List<Vector3>();
+                    if (!adj.ContainsKey(seg[seg.Count - 1]))
+                        adj[seg[seg.Count - 1]] = new List<Vector3>();
+
+                    adj[seg[0]].Add(seg[seg.Count - 1]);
+                    adj[seg[seg.Count - 1]].Add(seg[0]);
+                }
+                return adj;
+            }
+
+
+            List<List<List<Vector3>>> ClusterSegmentsByConnectivity(List<List<Vector3>> segments, float threshold = 1f)
+            {
+                List<List<List<Vector3>>> clusters = new List<List<List<Vector3>>>();
+                HashSet<int> visited = new HashSet<int>();
+
+                for (int i = 0; i < segments.Count; i++)
+                {
+                    if (visited.Contains(i))
+                        continue;
+
+                    List<List<Vector3>> cluster = new List<List<Vector3>>();
+                    Queue<int> queue = new Queue<int>();
+                    queue.Enqueue(i);
+                    visited.Add(i);
+
+                    while (queue.Count > 0)
+                    {
+                        int idx = queue.Dequeue();
+                        var seg = segments[idx];
+                        if (seg == null)
+                            continue;
+                        cluster.Add(seg);
+
+                        for (int j = 0; j < segments.Count; j++)
+                        {
+                            if (visited.Contains(j)) continue;
+                            if (segments[j] == null)
+                            {
+                                continue;
+                            }
+                            if (SegmentsAreConnected(seg, segments[j], threshold))
+                            {
+                                visited.Add(j);
+                                queue.Enqueue(j);
+                            }
+                        }
+                    }
+
+                    clusters.Add(cluster);
+                }
+
+                return clusters;
+            }
+            List<List<Vector3>> ExtractAllClosedPolygons1(List<List<Vector3>> segments, float connectThreshold = 1f, float joinTolerance = 0.5f)
+            {
+                var clusters = ClusterSegmentsByConnectivity(segments, connectThreshold);
+                var result = new List<List<Vector3>>();
+
+                foreach (var cluster in clusters)
+                {
+                    var polygons = ExtractClosedPolygons(cluster, joinTolerance);
+                    result.AddRange(polygons);
+                }
+
+                return result;
+            }
+            List<List<Vector3>> ExtractClosedPolygons(List<List<Vector3>> segments, float tolerance = 0.5f)
+            {
+                List<(Vector3 start, Vector3 end)> edges = new List<(Vector3, Vector3)>();
+
+                // 拆分所有线段为起点终点对（忽略中间点）
+                foreach (var seg in segments)
+                {
+                    if (seg == null)
+                    {
+                        continue;
+                    }
+                    for (int i = 0; i < seg.Count - 1; i++)
+                    {
+                        edges.Add((seg[i], seg[i + 1]));
+                    }
+                }
+
+                List<List<Vector3>> polygons = new List<List<Vector3>>();
+                HashSet<int> used = new HashSet<int>();
+
+                for (int i = 0; i < edges.Count; i++)
+                {
+                    if (used.Contains(i))
+                        continue;
+
+                    List<Vector3> polygon = new List<Vector3>();
+                    polygon.Add(edges[i].start);
+                    polygon.Add(edges[i].end);
+                    used.Add(i);
+
+                    Vector3 current = edges[i].end;
+
+                    bool closed = false;
+                    while (!closed)
+                    {
+                        bool found = false;
+                        for (int j = 0; j < edges.Count; j++)
+                        {
+                            if (used.Contains(j)) continue;
+
+                            if (Vector3.Distance(current, edges[j].start) <= tolerance)
+                            {
+                                polygon.Add(edges[j].end);
+                                current = edges[j].end;
+                                used.Add(j);
+                                found = true;
+                                break;
+                            }
+                            else if (Vector3.Distance(current, edges[j].end) <= tolerance)
+                            {
+                                // 反转方向
+                                polygon.Add(edges[j].start);
+                                current = edges[j].start;
+                                used.Add(j);
+                                found = true;
+                                break;
+                            }
+                        }
+
+                        // 如果已经回到起点，形成闭合
+                        if (Vector3.Distance(current, polygon[0]) <= tolerance)
+                        {
+                            closed = true;
+                            polygon.Add(polygon[0]); // 闭合
+                            break;
+                        }
+
+                        if (!found)
+                        {
+                            break; // 无法继续匹配
+                        }
+                    }
+
+                    if (polygon.Count >= 4 && closed)
+                        polygons.Add(polygon);
+                }
+
+                return polygons;
+            }
+
+
+            bool GetConnected(List<Vector3> pIn_AreaPoints, float maxDis = 5f)
+            {
+                Vector3 pre = pIn_AreaPoints[0];
+                Vector3 cur;
+                for (int i = 1; i < pIn_AreaPoints.Count; i++)
+                {
+                    cur = pIn_AreaPoints[i];
+                    if (Vector3.Distance(pre, cur) > maxDis)
+                    {
+                        return false;
+                    }
+                    pre = cur;
+                }
+                return true;
+            }
+
+            List<List<List<Vector3>>> SplitIntoSeparateAreas(List<List<Vector3>> segments, float threshold = 0.1f)
+            {
+                List<List<List<Vector3>>> areas = new List<List<List<Vector3>>>();
+
+                while (segments.Count > 0)
+                {
+                    List<List<Vector3>> currentArea = new List<List<Vector3>>();
+                    Queue<List<Vector3>> queue = new Queue<List<Vector3>>();
+                    queue.Enqueue(segments[0]);
+                    segments.RemoveAt(0);
+
+                    while (queue.Count > 0)
+                    {
+                        var seg = queue.Dequeue();
+                        currentArea.Add(seg);
+
+                        for (int i = segments.Count - 1; i >= 0; i--)
+                        {
+                            if (SegmentsAreClose(seg, segments[i], threshold))
+                            {
+                                queue.Enqueue(segments[i]);
+                                segments.RemoveAt(i);
+                            }
+                        }
+                    }
+                    areas.Add(currentArea);
+                }
+
+                return areas;
+            }
+
+            bool SegmentsAreClose(List<Vector3> segA, List<Vector3> segB, float threshold)
+            {
+                foreach (var pA in segA)
+                    foreach (var pB in segB)
+                        if (Vector3.Distance(pA, pB) < threshold)
+                            return true;
+
+                return false;
+            }
+
+
+            List<Vector3> CombineSegmentsIntoClosedPolygon(List<List<Vector3>> segments)
+            {
+                if (segments == null || segments.Count == 0)
+                    return new List<Vector3>();
+
+                List<Vector3> polygon = new List<Vector3>();
+
+                // 创建副本以避免修改原数据
+                List<List<Vector3>> remainingSegments = new List<List<Vector3>>(segments);
+
+                // 以第一条线段的起点为起始点
+                List<Vector3> currentSegment = remainingSegments[0];
+                polygon.AddRange(currentSegment);
+                remainingSegments.RemoveAt(0);
+
+                Vector3 currentPoint = polygon[polygon.Count - 1];
+
+                while (remainingSegments.Count > 0)
+                {
+                    float minDist = float.MaxValue;
+                    int nearestSegmentIndex = -1;
+                    bool reverseSegment = false;
+
+                    // 寻找下一个最近的线段（起点或终点）
+                    for (int i = 0; i < remainingSegments.Count; i++)
+                    {
+                        var seg = remainingSegments[i];
+                        if (seg == null)
+                        {
+                            continue;
+                        }
+                        float distToStart = Vector3.Distance(currentPoint, seg[0]);
+                        float distToEnd = Vector3.Distance(currentPoint, seg[seg.Count - 1]);
+
+                        if (distToStart < minDist)
+                        {
+                            minDist = distToStart;
+                            nearestSegmentIndex = i;
+                            reverseSegment = false;
+                        }
+
+                        if (distToEnd < minDist)
+                        {
+                            minDist = distToEnd;
+                            nearestSegmentIndex = i;
+                            reverseSegment = true;
+                        }
+                    }
+
+                    // 找到最近的线段并拼合
+                    if (nearestSegmentIndex != -1)
+                    {
+                        List<Vector3> nearestSegment = remainingSegments[nearestSegmentIndex];
+
+                        if (reverseSegment)
+                            nearestSegment.Reverse();
+
+                        // 避免重复点
+                        if (Vector3.Distance(currentPoint, nearestSegment[0]) < 0.001f)
+                            nearestSegment.RemoveAt(0);
+
+                        polygon.AddRange(nearestSegment);
+                        currentPoint = polygon[polygon.Count - 1];
+
+                        remainingSegments.RemoveAt(nearestSegmentIndex);
+                    }
+                    else
+                    {
+                        // 没有找到可拼合的线段，可能数据不连续
+                        break;
+                    }
+                }
+
+                // 最后检查是否需要闭合多边形
+                if (polygon.Count > 0 && Vector3.Distance(polygon[0], polygon[polygon.Count - 1]) > 0.001f)
+                    polygon.Add(polygon[0]);
+
+                return polygon;
+            }
+        }
+
+        private void Sort(BoundsMessageGroup group)
+        {
+            foreach (var item in group.BoundsMessage)
+            {
+                BoundsNode temp = item.Value.Head;
+                do
+                {
+                    Vector3Int start = temp.Boundary.First();
+                    temp.Boundary = TraceContour(ref temp.Boundary, start);
+                    temp = temp.Next;
+                } while (temp != item.Value.Head);
+            }
+            //while (points.Count > 0)
+            //{
+            //    // 随机取出一个点作为当前区域的起点
+            //    Vector3Int start = points.First();
+            //    List<Vector3Int> contour = TraceContour(ref points, start);
+            //    if (contour != null && contour.Count >= 2)
+            //    {
+            //        sortedContours.Add(contour);
+            //    }
+            //    else
+            //    {
+            //        Debug.Log($"{contour != null} , {contour?.Count}");
+            //    }
+            //    yield return null;
+            //}
         }
 
         private IEnumerator GeneretorLines()

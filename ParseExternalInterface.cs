@@ -139,7 +139,7 @@ namespace TEN
 
         private static Dictionary<Int64, List<Vector3>> _criticalPoints = new();
         private static Dictionary<Int64, List<GameObject>> _criticalGameobjects = new();
-        private Matrix4x4 _transMatr = Matrix4x4.identity;
+        private static Matrix4x4 _transMatr = Matrix4x4.identity;
         [Header("生成的mesh的高度")]
         public int MeshHeight = 0;
         [Header("生成的line的高度")]
@@ -147,7 +147,7 @@ namespace TEN
         private void GeneretorTransMatrix()
         {
             // 生成一个平移矩阵
-            Vector3 offset = new Vector3(-1024, 0, -1024);
+            Vector3 offset = new Vector3(-1024, MeshHeight, -1024);
             _transMatr = Matrix4x4.TRS(offset, Quaternion.identity, Vector3.one / 2);
 
             Matrix4x4 coordinateTransMatr = Matrix4x4.identity;
@@ -198,6 +198,7 @@ namespace TEN
                 Debug.Log("2222222222");
             }
 
+            #region 单向边界处理逻辑
             if (PaseMaster.Instance.GetJouction(a, b, out List<GameObject> lg))
             {
                 foreach (var item in lg)
@@ -206,13 +207,7 @@ namespace TEN
                     item.SetActive(false);
                 }
             }
-            else
-            {
-                Debug.Log("二者没有边界");
-                return false;
-            }
-
-            if (PaseMaster.Instance.GetJouction(b, a, out lg))
+            else if (PaseMaster.Instance.GetJouction(b, a, out lg))
             {
                 foreach (var item in lg)
                 {
@@ -222,9 +217,10 @@ namespace TEN
             }
             else
             {
-                Debug.Log("二者没有边界");
                 return false;
             }
+            #endregion
+
 
             return true;
         }
@@ -234,7 +230,8 @@ namespace TEN
             GUI.skin.button.fontSize = 50;
             if (GUI.Button(new Rect(0, 0, 400, 100), "GetRandomMesh"))
             {
-                int i = UnityEngine.Random.Range(0, colors.Count);
+                int i = UnityEngine.Random.Range(1, colors.Count);
+                i -= 1;
                 if (PaseMaster.Instance.GetMeshByColor(colors_inverse[i], out List<MeshRenderer> lm))
                 {
                     foreach (var item in lm)
